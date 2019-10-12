@@ -11,17 +11,16 @@ ROS integration of [LaMa]( https://github.com/iris-ua/iris_lama), a Localization
 
 #### Build
 
-To build LaMa ROS, clone it from GitHub and use `catkin` to build.
+To build LaMa ROS, clone it from GitHub and use `catkin_make` to build.
 ```
 mkdir src
 cd src
-git clone https://github.com/iris-ua/iris_lama
-git clone https://github.com/iris-ua/iris_lama_ros
+git clone -b kinetic https://github.com/sweetquiet/iris_lama.git
+git clone -b kinetic https://github.com/sweetquiet/iris_lama_ros.git
 cd ..
-catkin config --extend /opt/ros/melodic
-catkin build
+catkin_make
 ```
-The build was tested in **Ubuntu 18.04** with ROS **melodic**. It will not build with `catkin_make` or `catkin_make_isolated`.
+The build was tested in **Ubuntu 16.04** with ROS **kinetic**. 
 
 ## SLAM nodes
 

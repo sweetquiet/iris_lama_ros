@@ -42,21 +42,22 @@ lama::Loc2DROS::Loc2DROS()
     double tmp;
 
     pnh_.param("global_frame_id", global_frame_id_, std::string("/map"));
-    pnh_.param("odom_frame_id",   odom_frame_id_,   std::string("/odom"));
-    pnh_.param("base_frame_id",   base_frame_id_,   std::string("/base_link"));
+    pnh_.param("odom_frame_id", odom_frame_id_, std::string("/odom_combined"));
+    pnh_.param("base_frame_id", base_frame_id_, std::string("/base_link"));
 
     pnh_.param("scan_topic", scan_topic_, std::string("/scan"));
 
-    pnh_.param("transform_tolerance", tmp, 0.1); transform_tolerance_.fromSec(tmp);
+    pnh_.param("transform_tolerance", tmp, 0.1);
+    transform_tolerance_.fromSec(tmp);
 
     // Setup TF workers ...
     tf_ = new tf::TransformListener();
-    tfb_= new tf::TransformBroadcaster();
+    tfb_ = new tf::TransformBroadcaster();
 
     // Setup subscribers
     // Syncronized LaserScan messages with odometry transforms. This ensures that an odometry transformation
     // exists when the handler of a LaserScan message is called.
-    laser_scan_sub_    = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
+    laser_scan_sub_ = new message_filters::Subscriber<sensor_msgs::LaserScan>(nh_, scan_topic_, 100);
     laser_scan_filter_ = new tf::MessageFilter<sensor_msgs::LaserScan>(*laser_scan_sub_, *tf_, odom_frame_id_, 100);
     laser_scan_filter_->registerCallback(boost::bind(&Loc2DROS::onLaserScan, this, _1));
 
@@ -66,13 +67,14 @@ lama::Loc2DROS::Loc2DROS()
     pose_pub_ = nh_.advertise<geometry_msgs::PoseWithCovarianceStamped>("/pose", 10);
 
     ROS_INFO("Requesting the map...");
-    nav_msgs::GetMap::Request  req;
+    nav_msgs::GetMap::Request req;
     nav_msgs::GetMap::Response resp;
-    while(ros::ok() and not ros::service::call("static_map", req, resp)){
+    while (ros::ok() and not ros::service::call("static_map", req, resp))
+    {
         ROS_WARN("Request for map failed; trying again ...");
         ros::Duration d(0.5);
         d.sleep();
-    }// end while
+    } // end while
 
     InitLoc2DFromOccupancyGridMsg(resp.map);
 
@@ -88,46 +90,56 @@ lama::Loc2DROS::~Loc2DROS()
     delete tfb_;
 }
 
-void lama::Loc2DROS::onInitialPose(const geometry_msgs::PoseWithCovarianceStampedConstPtr& initial_pose)
+void lama::Loc2DROS::onInitialPose(const geometry_msgs::PoseWithCovarianceStampedConstPtr &initial_pose)
 {
     float x = initial_pose->pose.pose.position.x;
     float y = initial_pose->pose.pose.position.y;
     float yaw = tf::getYaw(initial_pose->pose.pose.orientation);
 
-    ROS_INFO("Setting pose to (%f, %f, %f)", x, y ,yaw);
+    ROS_INFO("Setting pose to (%f, %f, %f)", x, y, yaw);
     lama::Pose2D pose(x, y, yaw);
 
     loc2d_.setPose(pose);
 }
 
-void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr& laser_scan)
+void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr &laser_scan)
 {
     int laser_index = -1;
 
     // verify if it is from a known source
-    if ( frame_to_laser_.find( laser_scan->header.frame_id ) == frame_to_laser_.end() ){
+    if (frame_to_laser_.find(laser_scan->header.frame_id) == frame_to_laser_.end())
+    {
         if (not initLaser(laser_scan))
             return;
 
         laser_index = frame_to_laser_[laser_scan->header.frame_id];
-    }else{
+    }
+    else
+    {
         laser_index = frame_to_laser_[laser_scan->header.frame_id];
     }
 
     // Where was the robot at the time of the scan ?
-    tf::Stamped<tf::Pose> identity(tf::Transform(tf::createIdentityQuaternion(), tf::Vector3(0,0,0)),
+    tf::Stamped<tf::Pose> identity(tf::Transform(tf::createIdentityQuaternion(), tf::Vector3(0, 0, 0)),
                                    laser_scan->header.stamp, base_frame_id_);
     tf::Stamped<tf::Pose> odom_tf;
-    try{ tf_->transformPose(odom_frame_id_, identity, odom_tf); }
-    catch(tf::TransformException& e)
-    { ROS_WARN("Failed to compute odom pose, skipping scan %s", e.what() ); return; }
+    try
+    {
+        tf_->transformPose(odom_frame_id_, identity, odom_tf);
+    }
+    catch (tf::TransformException &e)
+    {
+        ROS_WARN("Failed to compute odom pose, skipping scan %s", e.what());
+        return;
+    }
 
     lama::Pose2D odom(odom_tf.getOrigin().x(), odom_tf.getOrigin().y(),
-                              tf::getYaw(odom_tf.getRotation()));
+                      tf::getYaw(odom_tf.getRotation()));
 
     bool update = loc2d_.enoughMotion(odom);
 
-    if (update){
+    if (update)
+    {
 
         size_t size = laser_scan->ranges.size();
         size_t beam_step = 1;
@@ -143,7 +155,8 @@ void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr& laser_sca
         cloud->sensor_orientation_ = Quaterniond(lasers_origin_[laser_index].state.so3().matrix());
 
         cloud->points.reserve(laser_scan->ranges.size());
-        for(size_t i = 0; i < size; i += beam_step ){
+        for (size_t i = 0; i < size; i += beam_step)
+        {
             double range;
 
             if (laser_is_reversed_[laser_index])
@@ -157,13 +170,12 @@ void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr& laser_sca
             if (range >= max_range || range <= min_range)
                 continue;
 
-
             Eigen::Vector3d point;
-            point << range * std::cos(angle_min+(i*angle_inc)),
-                     range * std::sin(angle_min+(i*angle_inc)),
-                     0;
+            point << range * std::cos(angle_min + (i * angle_inc)),
+                range * std::sin(angle_min + (i * angle_inc)),
+                0;
 
-            cloud->points.push_back( point );
+            cloud->points.push_back(point);
         }
 
         loc2d_.update(cloud, odom, laser_scan->header.stamp.toSec());
@@ -171,12 +183,14 @@ void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr& laser_sca
         Pose2D pose = loc2d_.getPose();
         // subtracting base to odom from map to base and send map to odom instead
         tf::Stamped<tf::Pose> odom_to_map;
-        try{
+        try
+        {
             tf::Transform tmp_tf(tf::createQuaternionFromYaw(pose.rotation()), tf::Vector3(pose.x(), pose.y(), 0));
-            tf::Stamped<tf::Pose> tmp_tf_stamped (tmp_tf.inverse(), laser_scan->header.stamp, base_frame_id_);
+            tf::Stamped<tf::Pose> tmp_tf_stamped(tmp_tf.inverse(), laser_scan->header.stamp, base_frame_id_);
             tf_->transformPose(odom_frame_id_, tmp_tf_stamped, odom_to_map);
-
-        }catch(tf::TransformException){
+        }
+        catch (tf::TransformException)
+        {
             ROS_WARN("Failed to subtract base to odom transform");
             return;
         }
@@ -191,18 +205,22 @@ void lama::Loc2DROS::onLaserScan(const sensor_msgs::LaserScanConstPtr& laser_sca
                                             transform_expiration,
                                             global_frame_id_, odom_frame_id_);
         tfb_->sendTransform(tmp_tf_stamped);
-    } else {
+    }
+    else
+    {
         // Nothing has change, therefore, republish the last transform.
         ros::Time transform_expiration = (laser_scan->header.stamp + transform_tolerance_);
-        tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(), transform_expiration,
+        tf::StampedTransform tmp_tf_stamped(latest_tf_.inverse(), 
+                                            transform_expiration,
                                             global_frame_id_, odom_frame_id_);
         tfb_->sendTransform(tmp_tf_stamped);
     } // end if (update)
 }
 
-void lama::Loc2DROS::InitLoc2DFromOccupancyGridMsg(const nav_msgs::OccupancyGrid& msg)
+void lama::Loc2DROS::InitLoc2DFromOccupancyGridMsg(const nav_msgs::OccupancyGrid &msg)
 {
-    Vector2d pos; double tmp;
+    Vector2d pos;
+    double tmp;
     pnh_.param("initial_pos_x", pos[0], 0.0);
     pnh_.param("initial_pos_y", pos[1], 0.0);
     pnh_.param("initial_pos_a", tmp, 0.0);
@@ -211,7 +229,7 @@ void lama::Loc2DROS::InitLoc2DFromOccupancyGridMsg(const nav_msgs::OccupancyGrid
     Loc2D::Options options;
     pnh_.param("d_thresh", options.trans_thresh, 0.01);
     pnh_.param("a_thresh", options.rot_thresh, 0.2);
-    pnh_.param("l2_max",   options.l2_max, 0.5);
+    pnh_.param("l2_max", options.l2_max, 0.5);
     pnh_.param("strategy", options.strategy, std::string("gn"));
 
     int itmp;
@@ -227,78 +245,95 @@ void lama::Loc2DROS::InitLoc2DFromOccupancyGridMsg(const nav_msgs::OccupancyGrid
              options.trans_thresh, options.rot_thresh, options.l2_max);
 
     unsigned int width = msg.info.width;
-    unsigned int height= msg.info.height;
+    unsigned int height = msg.info.height;
 
     for (unsigned int j = 0; j < height; ++j)
-        for (unsigned int i = 0; i < width;  ++i){
+        for (unsigned int i = 0; i < width; ++i)
+        {
 
             Vector3d coords;
             coords.x() = msg.info.origin.position.x + i * msg.info.resolution;
             coords.y() = msg.info.origin.position.y + j * msg.info.resolution;
 
-            char value = msg.data[i + j*width];
-            if ( value == 0 ){
+            char value = msg.data[i + j * width];
+            if (value == 0)
+            {
                 loc2d_.occupancy_map->setFree(coords);
-            } else if (value == 100) {
+            }
+            else if (value == 100)
+            {
                 loc2d_.occupancy_map->setOccupied(coords);
                 loc2d_.distance_map->addObstacle(loc2d_.distance_map->w2m(coords));
             }
-        }// end for
+        } // end for
 
     loc2d_.distance_map->update();
 }
 
-bool lama::Loc2DROS::initLaser(const sensor_msgs::LaserScanConstPtr& laser_scan)
+bool lama::Loc2DROS::initLaser(const sensor_msgs::LaserScanConstPtr &laser_scan)
 {
     // find the origin of the sensor in the base frame
-    tf::Stamped<tf::Pose> identity(tf::Transform(tf::createIdentityQuaternion(), tf::Vector3(0,0,0)),
+    tf::Stamped<tf::Pose> identity(tf::Transform(tf::createIdentityQuaternion(), tf::Vector3(0, 0, 0)),
                                    ros::Time(), laser_scan->header.frame_id);
     tf::Stamped<tf::Pose> laser_origin;
-    try{ tf_->transformPose(base_frame_id_, identity, laser_origin); }
-    catch(tf::TransformException& e)
-    { ROS_ERROR("Could not find origin of %s", laser_scan->header.frame_id.c_str()); return false; }
+    try
+    {
+        tf_->transformPose(base_frame_id_, identity, laser_origin);
+    }
+    catch (tf::TransformException &e)
+    {
+        ROS_ERROR("Could not find origin of %s", laser_scan->header.frame_id.c_str());
+        return false;
+    }
 
     // Validate laser orientation (code taken from slam_gmapping)
     // create a point 1m above the laser position and transform it into the laser-frame
     tf::Vector3 v;
     v.setValue(0, 0, 1 + laser_origin.getOrigin().z());
     tf::Stamped<tf::Vector3> up(v, laser_scan->header.stamp, base_frame_id_);
-    try {
+    try
+    {
         tf_->transformPoint(laser_scan->header.frame_id, up, up);
         ROS_DEBUG("Z-Axis in sensor frame: %.3f", up.z());
-    } catch(tf::TransformException& e) {
+    }
+    catch (tf::TransformException &e)
+    {
         ROS_ERROR("Unable to determine orientation of laser: %s", e.what());
         return false;
     }
 
     // we do not take roll or pitch into account. So check for correct sensor alignment.
-    if (std::fabs(std::fabs(up.z()) - 1) > 0.001) {
+    if (std::fabs(std::fabs(up.z()) - 1) > 0.001)
+    {
         ROS_WARN("Laser has to be mounted planar! Z-coordinate has to be 1 or -1, but gave: %.5f", up.z());
         return false;
     }
 
-    if (up.z() > 0) {
+    if (up.z() > 0)
+    {
         laser_is_reversed_.push_back(laser_scan->angle_min > laser_scan->angle_max);
 
         lama::Pose3D lp(laser_origin.getOrigin().x(), laser_origin.getOrigin().y(), 0,
-                             0, 0, tf::getYaw(laser_origin.getRotation()));
+                        0, 0, tf::getYaw(laser_origin.getRotation()));
 
-        lasers_origin_.push_back( lp );
+        lasers_origin_.push_back(lp);
         ROS_INFO("Laser is mounted upwards.");
-    } else {
+    }
+    else
+    {
         laser_is_reversed_.push_back(laser_scan->angle_min < laser_scan->angle_max);
 
         lama::Pose3D lp(laser_origin.getOrigin().x(), laser_origin.getOrigin().y(), 0,
-                             M_PI, 0, tf::getYaw(laser_origin.getRotation()));
+                        M_PI, 0, tf::getYaw(laser_origin.getRotation()));
 
-        lasers_origin_.push_back( lp );
+        lasers_origin_.push_back(lp);
         ROS_INFO("Laser is mounted upside down.");
     }
 
-    int laser_index = (int)frame_to_laser_.size();  // simple ID generator :)
+    int laser_index = (int)frame_to_laser_.size(); // simple ID generator :)
     frame_to_laser_[laser_scan->header.frame_id] = laser_index;
 
-    ROS_INFO("New laser configured (id=%d frame_id=%s)", laser_index, laser_scan->header.frame_id.c_str() );
+    ROS_INFO("New laser configured (id=%d frame_id=%s)", laser_index, laser_scan->header.frame_id.c_str());
     return true;
 }
 
@@ -310,4 +345,3 @@ int main(int argc, char *argv[])
 
     return 0;
 }
-

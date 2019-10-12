@@ -9,12 +9,29 @@
 
     <author     email="efp@ua.pt">Eurico Pedrosa</author>
     <maintainer email="efp@ua.pt">Eurico Pedrosa</maintainer>
+    <maintainer email="1142945213@qq.com">Eurico Pedrosa</maintainer>
 
     <license>BSD</license>
 
     <buildtool_depend>catkin</buildtool_depend>
 
     <build_depend>iris_lama</build_depend>
+
+    <build_depend>roscpp</build_depend>
+    <build_depend>visualization_msgs</build_depend>
+    <build_depend>tf</build_depend>
+    <build_depend>geometry_msgs</build_depend>
+    <build_depend>sensor_msgs</build_depend>
+    <build_depend>message_filters</build_depend>
+    <build_depend>nav_msgs</build_depend>
+
+    <run_depend>roscpp</run_depend>
+    <run_depend>visualization_msgs</run_depend>
+    <run_depend>tf</run_depend>
+    <run_depend>geometry_msgs</run_depend>
+    <run_depend>sensor_msgs</run_depend>
+    <run_depend>message_filters</run_depend>
+    <run_depend>nav_msgs</run_depend>
 
     <export />
 
